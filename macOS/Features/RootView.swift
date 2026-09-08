@@ -4,6 +4,7 @@ import AidokuRunner
 struct RootView: View {
     @ObservedObject var model: MacModel
     @State private var section = "library"
+    @State private var sourceToRemove: NativeInstalledSource?
     var body: some View {
         NavigationSplitView {
             List(selection: $section) {
@@ -25,6 +26,13 @@ struct RootView: View {
             }
         }
         .onChange(of: section) { model.manga = nil; model.closeReader() }
+        .confirmationDialog("移除这个源？书库记录会保留，源文件将移到废纸篓。", isPresented: Binding(
+            get: { sourceToRemove != nil }, set: { if !$0 { sourceToRemove = nil } })) {
+                if let source = sourceToRemove {
+                    Button("移除 \(source.name)", role: .destructive) { model.removeSource(source); sourceToRemove = nil }
+                    Button("取消", role: .cancel) { sourceToRemove = nil }
+                }
+            }
         .alert("Aidoku", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }
@@ -63,22 +71,44 @@ struct RootView: View {
                 Button("Load List") { Task { await model.loadSourceList() } }.disabled(model.busy)
             }
             List {
-                Section("Installed") {
-                    ForEach(model.sources) { source in Text(source.name) }
+                Section("源列表") {
+                    ForEach(model.savedSourceLists, id: \.self) { url in
+                        HStack {
+                            Text(url).lineLimit(1).help(url)
+                            Spacer()
+                            Button { model.removeSourceList(url) } label: { Image(systemName: "minus.circle") }.disabled(model.busy)
+                        }
+                    }
+                    Button("刷新全部源列表") { Task { await model.refreshSourceLists() } }.disabled(model.busy)
+                }
+                Section("已安装") {
+                    ForEach(model.installedSources) { source in
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(source.name)
+                                Text("v\(source.version)").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Toggle("启用", isOn: Binding(get: { !source.disabled }, set: { enabled in
+                                Task { await model.setSourceEnabled(source, enabled: enabled) }
+                            })).toggleStyle(.switch).disabled(model.busy)
+                            Button { sourceToRemove = source } label: { Image(systemName: "trash") }.disabled(model.busy)
+                        }
+                    }
                 }
                 Section("Available") {
                     ForEach(model.externalSources, id: \.id) { source in
                         HStack {
                             Text(source.name)
                             Spacer()
-                            Button(model.sources.contains(where: { $0.key == source.id }) ? "Installed" : "Install") {
+                            Button(model.installedSources.contains(where: { $0.id == source.id }) ? "更新" : "安装") {
                                 Task { await model.install(source) }
-                            }.disabled(model.busy || model.sources.contains(where: { $0.key == source.id }))
+                            }.disabled(model.busy || model.installedSources.contains(where: { $0.id == source.id && $0.version >= source.version }))
                         }
                     }
                 }
             }
-            Text("Legacy AIX packages, login/settings forms and Cloudflare challenge windows are not yet connected.")
+            Text("旧版 AIX 执行引擎、网页登录和 Cloudflare 验证窗口仍未接入。")
                 .font(.caption).foregroundStyle(.secondary)
         }.padding()
     }

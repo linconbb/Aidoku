@@ -27,6 +27,8 @@ struct NativeReaderView: View {
                 Button { settings.toggle() } label: { Image(systemName: "slider.horizontal.3") }
                     .help("阅读设置")
                     .popover(isPresented: $settings) { NativeReaderSettings(model: model).padding().frame(width: 310) }
+                Button { model.saveChapter() } label: { Image(systemName: "square.and.arrow.down") }
+                    .help("保存本章为 CBZ").disabled(model.exportBusy || model.pageCount == 0)
                 Button { NSApp.keyWindow?.toggleFullScreen(nil) } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
                     .help("全屏")
             }.padding(10)
@@ -73,6 +75,14 @@ struct NativeReaderView: View {
                     }
                 }.background(background)
             }
+            if model.exportBusy {
+                HStack {
+                    ProgressView().controlSize(.small)
+                    Text(model.exportProgress).font(.caption)
+                    Button("取消保存") { model.cancelExport() }
+                    Spacer()
+                }.padding(8)
+            }
             Divider()
             HStack(spacing: 10) {
                 Button { Task { await model.changeChapter(-1) } } label: { Image(systemName: "backward.end") }
@@ -94,6 +104,7 @@ struct NativeReaderView: View {
                 Button { model.readerZoom = min(3, model.readerZoom + 0.25) } label: { Image(systemName: "plus.magnifyingglass") }
             }.padding(10)
         }
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { jump = "\(model.page + 1)" }
         .onChange(of: model.page) { jump = "\(model.page + 1)" }
         .onChange(of: model.readerMode) { scrollPage = model.page }

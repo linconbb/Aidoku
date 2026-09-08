@@ -3,6 +3,7 @@ import AidokuRunner
 import Combine
 import PDFKit
 import ZIPFoundation
+import UniformTypeIdentifiers
 
 struct SavedBook: Codable, Identifiable {
     var id = UUID()
@@ -12,6 +13,13 @@ struct SavedBook: Codable, Identifiable {
     var bookmark: Data?
     var chapterKey: String?
     var page = 0
+}
+
+struct NativeInstalledSource: Identifiable {
+    var id: String
+    var name: String
+    var version: Int
+    var disabled: Bool
 }
 
 struct NativeReaderContent {
@@ -25,6 +33,11 @@ final class NativePageCacheEntry {
 
 @MainActor
 final class MacModel: ObservableObject {
+    @Published var installedSources: [NativeInstalledSource] = []
+    @Published var savedSourceLists: [String] = []
+    private var disabledSourceKeys: Set<String> = []
+    private var listsByURL: [String: [ExternalSourceInfo]] = [:]
+    private var exportTask: Task<Void, Never>?
     @Published var sources: [AidokuRunner.Source] = []
     @Published var sourceKey = ""
     @Published var query = ""
@@ -91,6 +104,9 @@ final class MacModel: ObservableObject {
         self.coverAlone = preferences.object(forKey: "mac.reader.coverAlone") as? Bool ?? true
         self.readerFit = NativeReaderFit(rawValue: preferences.string(forKey: "mac.reader.fit") ?? "") ?? .page
         self.readerBackground = NativeReaderBackground(rawValue: preferences.string(forKey: "mac.reader.background") ?? "") ?? .dark
+        self.disabledSourceKeys = Set(preferences.stringArray(forKey: "mac.disabledSources") ?? [])
+        self.savedSourceLists = preferences.stringArray(forKey: "mac.sourceLists") ??
+            (preferences.string(forKey: "mac.sourceListURL").map { [$0] } ?? [])
         pageCache.countLimit = 12
         pageCache.totalCostLimit = 128 * 1024 * 1024
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -107,10 +123,23 @@ final class MacModel: ObservableObject {
                 books = try JSONDecoder().decode([SavedBook].self, from: Data(contentsOf: libraryURL))
             }
             for url in try FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("Sources"), includingPropertiesForKeys: nil) {
-                do { sources.append(try await AidokuRunner.Source(url: url)) }
+                do {
+                    if disabledSourceKeys.contains(url.lastPathComponent) {
+                        let data = try Data(contentsOf: url.appendingPathComponent("source.json"))
+                        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                        let info = json?["info"] as? [String: Any]
+                        installedSources.append(.init(id: url.lastPathComponent, name: info?["name"] as? String ?? url.lastPathComponent,
+                                                      version: info?["version"] as? Int ?? 0, disabled: true))
+                    } else {
+                        let source = try await AidokuRunner.Source(url: url)
+                        sources.append(source)
+                        installedSources.append(.init(id: source.key, name: source.name, version: source.version, disabled: false))
+                    }
+                }
                 catch { self.error = "Source \(url.lastPathComponent) could not load: \(error.localizedDescription)" }
             }
             sources.sort { $0.name < $1.name }
+            installedSources.sort { $0.name < $1.name }
             sourceKey = sources.first?.key ?? ""
             listURL = preferences.string(forKey: "mac.sourceListURL") ?? ""
         } catch { self.error = error.localizedDescription }
@@ -176,18 +205,94 @@ final class MacModel: ObservableObject {
         }
         let source = try await AidokuRunner.Source(url: payload)
         guard NativeFiles.validSourceKey(source.key) else { throw NativeError.message("Invalid source identifier.") }
-        guard !sources.contains(where: { $0.key == source.key }) else { throw NativeError.message("This source is already installed.") }
         let target = root.appendingPathComponent("Sources").appendingPathComponent(source.key)
-        try FileManager.default.moveItem(at: payload, to: target)
+        let backup = root.appendingPathComponent("SourceBackup-\(UUID().uuidString)")
+        let replacing = FileManager.default.fileExists(atPath: target.path)
+        if replacing { try FileManager.default.moveItem(at: target, to: backup) }
         do {
+            try FileManager.default.moveItem(at: payload, to: target)
             let loaded = try await AidokuRunner.Source(url: target)
-            sources.append(loaded)
+            if activeSource?.key == loaded.key {
+                closeReader()
+                activeSource = loaded
+            }
+            sources.removeAll { $0.key == loaded.key }
+            let disabled = disabledSourceKeys.contains(loaded.key)
+            if !disabled { sources.append(loaded); sourceKey = loaded.key }
             sources.sort { $0.name < $1.name }
-            sourceKey = loaded.key
+            installedSources.removeAll { $0.id == loaded.key }
+            installedSources.append(.init(id: loaded.key, name: loaded.name, version: loaded.version, disabled: disabled))
+            installedSources.sort { $0.name < $1.name }
+            if replacing { try? FileManager.default.removeItem(at: backup) }
         } catch {
             try? FileManager.default.removeItem(at: target)
+            if replacing { try FileManager.default.moveItem(at: backup, to: target) }
             throw error
         }
+    }
+
+    func setSourceEnabled(_ record: NativeInstalledSource, enabled: Bool) async {
+        guard !busy, NativeFiles.validSourceKey(record.id) else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            if enabled {
+                let source = try await AidokuRunner.Source(url: root.appendingPathComponent("Sources").appendingPathComponent(record.id))
+                sources.removeAll { $0.key == record.id }
+                sources.append(source)
+                sources.sort { $0.name < $1.name }
+                disabledSourceKeys.remove(record.id)
+                sourceKey = source.key
+            } else {
+                disabledSourceKeys.insert(record.id)
+                sources.removeAll { $0.key == record.id }
+                if sourceKey == record.id { sourceKey = sources.first?.key ?? "" }
+                if activeSource?.key == record.id { closeReader(); activeSource = nil; manga = nil }
+            }
+            if let i = installedSources.firstIndex(where: { $0.id == record.id }) { installedSources[i].disabled = !enabled }
+            preferences.set(Array(disabledSourceKeys), forKey: "mac.disabledSources")
+            results = []
+        } catch { self.error = error.localizedDescription }
+    }
+
+    func removeSource(_ record: NativeInstalledSource) {
+        guard !busy, NativeFiles.validSourceKey(record.id) else { return }
+        do {
+            let url = root.appendingPathComponent("Sources").appendingPathComponent(record.id)
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            installedSources.removeAll { $0.id == record.id }
+            sources.removeAll { $0.key == record.id }
+            disabledSourceKeys.remove(record.id)
+            preferences.set(Array(disabledSourceKeys), forKey: "mac.disabledSources")
+            if activeSource?.key == record.id { closeReader(); activeSource = nil; manga = nil }
+            if sourceKey == record.id { sourceKey = sources.first?.key ?? "" }
+            results = []
+        } catch { self.error = error.localizedDescription }
+    }
+
+    private func fetchSourceList(_ url: URL) async throws -> [ExternalSourceInfo] {
+        func decode(_ url: URL) async throws -> [ExternalSourceInfo] {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
+                throw NativeError.message("Could not download the source list.")
+            }
+            let base = response.url ?? url
+            if let list = try? JSONDecoder().decode(CodableSourceList.self, from: data) { return list.into(url: base).sources }
+            return try JSONDecoder().decode([ExternalSourceInfo].self, from: data).map { $0.with(sourceUrl: base) }
+        }
+        do { return try await decode(url) }
+        catch {
+            if url.pathExtension.isEmpty { return try await decode(url.appendingPathComponent("index.min.json")) }
+            throw error
+        }
+    }
+
+    private func mergeSourceLists() {
+        var byKey: [String: ExternalSourceInfo] = [:]
+        for url in savedSourceLists {
+            for info in listsByURL[url] ?? [] where byKey[info.id] == nil || byKey[info.id]!.version < info.version { byKey[info.id] = info }
+        }
+        externalSources = byKey.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     func loadSourceList() async {
@@ -195,17 +300,37 @@ final class MacModel: ObservableObject {
         busy = true
         defer { busy = false }
         do {
-            guard let url = URL(string: listURL), ["https", "http"].contains(url.scheme ?? "") else {
+            guard let url = URL(string: listURL.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  ["https", "http"].contains(url.scheme ?? "") else {
                 throw NativeError.message("Enter an HTTP or HTTPS source-list URL.")
             }
-            let (data, response) = try await URLSession.shared.data(from: url)
-            guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
-                throw NativeError.message("Could not download the source list.")
-            }
-            let list = try JSONDecoder().decode(CodableSourceList.self, from: data).into(url: url)
-            externalSources = list.sources
-            preferences.set(listURL, forKey: "mac.sourceListURL")
+            listsByURL[url.absoluteString] = try await fetchSourceList(url)
+            if !savedSourceLists.contains(url.absoluteString) { savedSourceLists.append(url.absoluteString) }
+            preferences.set(savedSourceLists, forKey: "mac.sourceLists")
+            preferences.set(url.absoluteString, forKey: "mac.sourceListURL")
+            mergeSourceLists()
         } catch { self.error = error.localizedDescription }
+    }
+
+    func refreshSourceLists() async {
+        guard !busy else { return }
+        busy = true
+        defer { busy = false }
+        var failures: [String] = []
+        for value in savedSourceLists {
+            guard let url = URL(string: value) else { continue }
+            do { listsByURL[value] = try await fetchSourceList(url) }
+            catch { failures.append(value + ": " + error.localizedDescription) }
+        }
+        mergeSourceLists()
+        if !failures.isEmpty { error = failures.joined(separator: "\n") }
+    }
+
+    func removeSourceList(_ url: String) {
+        savedSourceLists.removeAll { $0 == url }
+        listsByURL[url] = nil
+        preferences.set(savedSourceLists, forKey: "mac.sourceLists")
+        mergeSourceLists()
     }
 
     func install(_ info: ExternalSourceInfo) async {
@@ -492,6 +617,56 @@ final class MacModel: ObservableObject {
             } catch { try? await source.remove(value: ref); throw error }
         }
         return platform.image
+    }
+
+    func saveChapter() {
+        guard pageCount > 0, !exportBusy else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "cbz") ?? .zip]
+        panel.nameFieldStringValue = readerTitle.replacingOccurrences(of: "/", with: "-") + ".cbz"
+        panel.message = "将当前章节保存为 CBZ；未完成的文件不会替换已有文件。"
+        if panel.runModal() == .OK, let url = panel.url {
+            exportTask = Task {
+                do { try await exportCBZ(to: url) }
+                catch is CancellationError { exportProgress = "已取消" }
+                catch { self.error = error.localizedDescription }
+            }
+        }
+    }
+    func cancelExport() { exportTask?.cancel() }
+
+    func exportCBZ(to destination: URL) async throws {
+        guard !exportBusy, pageCount > 0 else { throw NativeError.message("No chapter available to save.") }
+        exportBusy = true
+        defer { exportBusy = false }
+        let session = readerSession
+        let count = pageCount
+        let directory = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                                    appropriateFor: destination, create: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let temporary = directory.appendingPathComponent("chapter.cbz")
+        do {
+            let archive = try Archive(url: temporary, accessMode: .create)
+            for index in 0..<count {
+                try Task.checkCancellation()
+                let content = try await readerContent(at: index, session: session)
+                guard let image = content.image, let tiff = image.tiffRepresentation,
+                      let bitmap = NSBitmapImageRep(data: tiff),
+                      let data = bitmap.representation(using: .png, properties: [:]) else {
+                    throw NativeError.message("This chapter contains text or a page that cannot be saved as an image.")
+                }
+                try archive.addEntry(with: String(format: "%05d.png", index + 1), type: .file, uncompressedSize: Int64(data.count)) { position, size in
+                    data.subdata(in: Int(position)..<min(Int(position) + size, data.count))
+                }
+                exportProgress = "保存 \(index + 1) / \(count)"
+            }
+        }
+        try Task.checkCancellation()
+        guard readerSession == session else { throw CancellationError() }
+        if FileManager.default.fileExists(atPath: destination.path) {
+            _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporary)
+        } else { try FileManager.default.moveItem(at: temporary, to: destination) }
+        exportProgress = "已保存 \(count) 页"
     }
 
     func removeBook(_ book: SavedBook) {

@@ -11,6 +11,22 @@ enum NativeSmoke {
         if !condition() { throw NativeError.message("TEST FAILED: " + message) }
         print("PASS: " + message)
     }
+    static func testPage(_ label: String) throws -> Data {
+        let image = NSImage(size: NSSize(width: 360, height: 540))
+        image.lockFocus()
+        (label == "1.png" ? NSColor.systemBlue : label == "2.png" ? NSColor.systemOrange : NSColor.systemGreen).setFill()
+        NSBezierPath(rect: NSRect(x: 0, y: 0, width: 360, height: 540)).fill()
+        ("Aidoku" as NSString).draw(at: NSPoint(x: 28, y: 450),
+            withAttributes: [.font: NSFont.boldSystemFont(ofSize: 40), .foregroundColor: NSColor.white])
+        (label as NSString).draw(at: NSPoint(x: 28, y: 260),
+            withAttributes: [.font: NSFont.boldSystemFont(ofSize: 64), .foregroundColor: NSColor.white])
+        ("Native reader test" as NSString).draw(at: NSPoint(x: 28, y: 45),
+            withAttributes: [.font: NSFont.systemFont(ofSize: 22), .foregroundColor: NSColor.white])
+        image.unlockFocus()
+        guard let data = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data),
+              let png = bitmap.representation(using: .png, properties: [:]) else { throw NativeError.message("Could not draw test page") }
+        return png
+    }
     static func run() async {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent("AidokuTests-\(UUID().uuidString)")
         do {
@@ -18,14 +34,11 @@ enum NativeSmoke {
             defer { try? FileManager.default.removeItem(at: temp) }
             try require(LocalFileNameParser.getMangaChapterNumber(from: "Example Ch. 12.cbz") == 12, "shared v0.9 chapter parser")
             try require(!NativeFiles.validSourceKey("../outside"), "reject invalid source identifiers")
-            let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 16, pixelsHigh: 24,
-                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-            let png = bitmap.representation(using: .png, properties: [:])!
             let cbz = temp.appendingPathComponent("Example Ch. 12.cbz")
             do {
                 let archive = try Archive(url: cbz, accessMode: .create)
                 for path in ["10.png", "2.png", "1.png"] {
+                    let png = try testPage(path)
                     try archive.addEntry(with: path, type: .file, uncompressedSize: Int64(png.count)) { position, size in
                         png.subdata(in: Int(position)..<min(Int(position)+size, png.count))
                     }
@@ -79,6 +92,12 @@ enum NativeSmoke {
             try require(first.image === cached.image, "page cache reuses decoded image")
             await model.importFile(cbz)
             try require(model.books.count == 1, "reimport does not duplicate a local book")
+            let exported = temp.appendingPathComponent("exported.cbz")
+            try await model.exportCBZ(to: exported)
+            let exportedArchive = try Archive(url: exported, accessMode: .read)
+            try require(NativeFiles.imagePaths(in: exportedArchive).count == 3, "CBZ export contains every page")
+            let exportedData = try NativeFiles.data(archive: exportedArchive, entry: exportedArchive["00001.png"]!)
+            try require(NSImage(data: exportedData) != nil, "exported CBZ page decodes")
             model.readerMode = .spread
             model.coverAlone = false
             model.rightToLeft = true
@@ -124,11 +143,40 @@ enum NativeSmoke {
                 try await Task.sleep(nanoseconds: 20_000_000)
             }
             try require(model.pageText?.contains("text only chapter") == true, "shared engine page list through native reader")
+            let existing = temp.appendingPathComponent("preserved.cbz")
+            let sentinel = Data("original file".utf8)
+            try sentinel.write(to: existing)
+            var exportRejected = false
+            do { try await model.exportCBZ(to: existing) } catch { exportRejected = true }
+            let preservedData = try Data(contentsOf: existing)
+            try require(exportRejected && preservedData == sentinel, "failed text chapter export preserves destination")
             if let payload = ProcessInfo.processInfo.environment["AIDOKU_TEST_PAYLOAD"] {
                 let source = try await AidokuRunner.Source(url: URL(fileURLWithPath: payload))
                 try require(source.key == "test", "official WASM fixture initialization")
                 _ = try await source.getHome()
                 print("PASS: official WASM getHome")
+                let package = temp.appendingPathComponent("test.aix")
+                do {
+                    let archive = try Archive(url: package, accessMode: .create)
+                    for name in ["source.json", "main.wasm"] {
+                        let data = try Data(contentsOf: URL(fileURLWithPath: payload).appendingPathComponent(name))
+                        try archive.addEntry(with: "Payload/" + name, type: .file, uncompressedSize: Int64(data.count)) { position, size in
+                            data.subdata(in: Int(position)..<min(Int(position) + size, data.count))
+                        }
+                    }
+                }
+                try await model.installSource(package)
+                try require(model.installedSources.contains { $0.id == "test" }, "AIX package installs through native source manager")
+                try await model.installSource(package)
+                try require(model.installedSources.filter { $0.id == "test" }.count == 1, "source update replaces without duplicating")
+                let installed = model.installedSources.first { $0.id == "test" }!
+                await model.setSourceEnabled(installed, enabled: false)
+                try require(!model.sources.contains { $0.key == "test" }, "source disable unloads the runtime")
+                let disabledReload = MacModel(root: root, preferences: preferences)
+                await disabledReload.start()
+                try require(disabledReload.installedSources.first { $0.id == "test" }?.disabled == true && disabledReload.sources.isEmpty, "disabled source persists without loading WASM")
+                await model.setSourceEnabled(installed, enabled: true)
+                try require(model.sources.contains { $0.key == "test" }, "source enable restores runtime")
             } else { throw NativeError.message("Missing required WASM fixture path.") }
             print("ALL NATIVE SMOKE TESTS PASSED")
             fflush(stdout)
