@@ -113,16 +113,19 @@ enum NativeSmoke {
                 model.renderPage(0)
                 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 720),
                     styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-                window.contentViewController = NSHostingController(rootView: NativeReaderView(model: model))
+                window.isReleasedWhenClosed = false
+                window.contentViewController = NSHostingController(rootView: NativeReaderView(model: model).frame(width: 1000, height: 720))
+                window.setContentSize(NSSize(width: 1000, height: 720))
                 window.makeKeyAndOrderFront(nil)
                 try await Task.sleep(nanoseconds: 800_000_000)
                 if let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                    try require(rep.pixelsWide >= 900 && rep.pixelsHigh >= 600, "reader \(mode.rawValue) renders a full-size window")
                     view.cacheDisplay(in: view.bounds, to: rep)
                     if let data = rep.representation(using: .png, properties: [:]) {
                         try data.write(to: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("build/reader-\(mode.rawValue).png"))
                     }
                 }
-                window.orderOut(nil)
+                window.close()
             }
             model.closeReader()
             var staleRejected = false
@@ -135,6 +138,8 @@ enum NativeSmoke {
             model.query = "fixture"
             await model.search()
             try require(model.results.first?.key == "fixture", "shared engine search through native model")
+            await model.search(next: true)
+            try require(model.results.count == 1, "search pagination deduplicates repeated results")
             await model.selectManga(model.results[0])
             try require(model.manga?.chapters?.count == 4, "shared engine manga and chapters")
             await model.readChapter(model.manga!.chapters!.first!)

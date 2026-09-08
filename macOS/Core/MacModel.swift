@@ -39,7 +39,11 @@ final class MacModel: ObservableObject {
     private var listsByURL: [String: [ExternalSourceInfo]] = [:]
     private var exportTask: Task<Void, Never>?
     @Published var sources: [AidokuRunner.Source] = []
-    @Published var sourceKey = ""
+    @Published var sourceKey = "" {
+        didSet {
+            if oldValue != sourceKey { results = []; hasNextResults = false; resultPage = 1 }
+        }
+    }
     @Published var query = ""
     @Published var results: [AidokuRunner.Manga] = []
     @Published var manga: AidokuRunner.Manga?
@@ -96,6 +100,8 @@ final class MacModel: ObservableObject {
     private var imageTask: Task<Void, Never>?
     private var generation = UUID()
     private var resultPage = 1
+    private var resultQuery = ""
+    private var resultSourceKey = ""
 
     init(root: URL? = nil, preferences: UserDefaults = .standard) {
         self.preferences = preferences
@@ -355,10 +361,16 @@ final class MacModel: ObservableObject {
         busy = true
         defer { busy = false }
         do {
-            let requestedPage = next ? resultPage + 1 : 1
-            let result = try await source.getSearchMangaList(query: query, page: requestedPage, filters: [])
+            let searchQuery = query
+            let append = next && resultSourceKey == source.key && resultQuery == searchQuery
+            let requestedPage = append ? resultPage + 1 : 1
+            let result = try await source.getSearchMangaList(query: searchQuery, page: requestedPage, filters: [])
+            guard sourceKey == source.key, query == searchQuery else { return }
             resultPage = requestedPage
-            results = next ? results + result.entries : result.entries
+            resultQuery = searchQuery
+            resultSourceKey = source.key
+            var seen = Set<String>()
+            results = (append ? results + result.entries : result.entries).filter { seen.insert($0.key).inserted }
             hasNextResults = result.hasNextPage
         } catch { self.error = error.localizedDescription }
     }
@@ -527,6 +539,8 @@ final class MacModel: ObservableObject {
         if let task = pageLoads[index] { return try await task.value }
         let source = activeSource
         let task = Task<NativeReaderContent, Error> {
+            try Task.checkCancellation()
+            guard session == readerSession, (0..<pageCount).contains(index) else { throw CancellationError() }
             let content: NativeReaderContent
             if let pdf {
                 content = .init(image: pdf.page(at: index)?.thumbnail(of: NSSize(width: 2400, height: 3400), for: .mediaBox))
@@ -569,6 +583,12 @@ final class MacModel: ObservableObject {
         }
     }
 
+    var resumeChapter: AidokuRunner.Chapter? {
+        guard let manga, let source = activeSource,
+              let book = books.first(where: { $0.sourceKey == source.key && $0.mangaKey == manga.key }),
+              let key = book.chapterKey else { return nil }
+        return manga.chapters?.first { $0.key == key }
+    }
     var orderedChapters: [AidokuRunner.Chapter] {
         // Sources conventionally return newest first; numbered chapters make order explicit.
         let chapters = manga?.chapters ?? []

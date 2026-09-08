@@ -143,6 +143,9 @@ struct RootView: View {
                 Button("Back") { model.manga = nil }
                 Text(manga.title).font(.title2)
                 Spacer()
+                if let chapter = model.resumeChapter {
+                    Button("继续阅读") { Task { await model.readChapter(chapter) } }.disabled(model.busy)
+                }
                 Button("Add to Library") { model.addToLibrary() }
             }
             if let description = manga.description { Text(description).lineLimit(5).foregroundStyle(.secondary) }
