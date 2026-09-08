@@ -1,6 +1,11 @@
 name: Native macOS DMG
 on:
   workflow_dispatch:
+    inputs:
+      verify_ios:
+        description: Also rebuild the unchanged iOS baseline
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -41,8 +46,11 @@ jobs:
             build/macho-platform.txt
             build/smoke.log
             Aidoku-macOS.xcodeproj
+            macOS/Resources/AppIcon.icns
+            build/reader-*.png
           retention-days: 3
   ios-baseline:
+    if: inputs.verify_ios
     runs-on: macos-15
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer

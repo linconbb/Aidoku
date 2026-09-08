@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p build
+bash scripts/generate-macos-icon.sh
 python3 scripts/generate-macos-project.py
 xcodebuild -project Aidoku-macOS.xcodeproj -scheme Aidoku-macOS \
   -configuration Release -sdk macosx -destination 'generic/platform=macOS' \

@@ -4,7 +4,6 @@ import AidokuRunner
 struct RootView: View {
     @ObservedObject var model: MacModel
     @State private var section = "library"
-    @State private var fitWidth = false
     var body: some View {
         NavigationSplitView {
             List(selection: $section) {
@@ -18,14 +17,14 @@ struct RootView: View {
         } detail: {
             VStack(spacing: 0) {
                 if model.busy { ProgressView().padding(8) }
-                if model.showReader { reader }
+                if model.showReader { NativeReaderView(model: model).id(model.readerSession) }
                 else if let manga = model.manga { details(manga) }
                 else if section == "sources" { sources }
                 else if section == "browse" { browse }
                 else { library }
             }
         }
-        .onChange(of: section) { model.manga = nil; model.showReader = false }
+        .onChange(of: section) { model.manga = nil; model.closeReader() }
         .alert("Aidoku", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }
@@ -42,7 +41,8 @@ struct RootView: View {
                 Button("Open Comic…") { model.chooseFile() }
                 Spacer()
             } else {
-                List(model.books) { book in
+                TextField("搜索书库", text: $model.libraryQuery).textFieldStyle(.roundedBorder)
+                List(model.books.filter { model.libraryQuery.isEmpty || $0.title.localizedCaseInsensitiveContains(model.libraryQuery) }) { book in
                     HStack {
                         Button(book.title) { Task { await model.openBook(book) } }.buttonStyle(.plain)
                         Spacer()
@@ -124,31 +124,4 @@ struct RootView: View {
         }.padding()
     }
 
-    private var reader: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Button("Close Reader") { model.showReader = false }
-                Text(model.readerTitle).lineLimit(1)
-                Spacer()
-                Toggle("Fit Width", isOn: $fitWidth).toggleStyle(.switch)
-            }.padding(10)
-            GeometryReader { geometry in
-                ScrollView {
-                    if let image = model.image {
-                        Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
-                            .frame(width: geometry.size.width,
-                                   height: fitWidth ? geometry.size.width * image.size.height / max(image.size.width, 1) : geometry.size.height)
-                    } else if let text = model.pageText {
-                        Text(text).textSelection(.enabled).frame(maxWidth: 800).padding(24)
-                    } else { ProgressView().frame(width: geometry.size.width, height: geometry.size.height) }
-                }.id(model.page)
-            }.background(Color(nsColor: .textBackgroundColor))
-            HStack {
-                Button("Previous") { model.movePage(-1) }.disabled(model.page == 0)
-                Text("\(model.page + 1) / \(model.pageCount)").monospacedDigit()
-                Button("Next") { model.movePage(1) }.disabled(model.page + 1 >= model.pageCount)
-                Spacer()
-            }.padding(10)
-        }
-    }
 }

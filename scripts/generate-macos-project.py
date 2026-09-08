@@ -20,6 +20,9 @@ refs, builds = [], []
 for source in sources:
     refs.append(obj(source, f'isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "{source}"; sourceTree = SOURCE_ROOT;'))
     builds.append(obj("build"+source, f"isa = PBXBuildFile; fileRef = {ident(source)};"))
+icon = obj("icon", 'isa = PBXFileReference; lastKnownFileType = image.icns; path = "macOS/Resources/AppIcon.icns"; sourceTree = SOURCE_ROOT;')
+refs.append(icon)
+iconbuild = obj("iconbuild", f'isa = PBXBuildFile; fileRef = {icon};')
 config = obj("config", 'isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "macOS/Aidoku-MACOS.xcconfig"; sourceTree = SOURCE_ROOT;')
 product = obj("product", 'isa = PBXFileReference; explicitFileType = wrapper.application; path = Aidoku.app; sourceTree = BUILT_PRODUCTS_DIR;')
 products = obj("products", f'isa = PBXGroup; children = ({product},); name = Products; sourceTree = "<group>";')
@@ -35,7 +38,7 @@ for name,url,revision in [
     packages.append(pkg); dependencies.append(dep)
     links.append(obj(name+"link", f'isa = PBXBuildFile; productRef = {dep};'))
 frameworks = obj("frameworks", f'isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ({",".join(links)},); runOnlyForDeploymentPostprocessing = 0;')
-resources = obj("resources", 'isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;')
+resources = obj("resources", f'isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ({iconbuild},); runOnlyForDeploymentPostprocessing = 0;')
 for kind in ["project","target"]:
     configs=[]
     for mode in ["Debug","Release"]:

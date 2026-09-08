@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import AidokuRunner
 import Foundation
 import ZIPFoundation
@@ -43,8 +44,11 @@ enum NativeSmoke {
             do { try NativeFiles.unpackSource(unsafe, to: temp.appendingPathComponent("unpacked")) }
             catch { rejected = true }
             try require(rejected, "reject archive path traversal")
+            let suiteName = "AidokuSmoke-\(UUID().uuidString)"
+            let preferences = UserDefaults(suiteName: suiteName)!
+            defer { preferences.removePersistentDomain(forName: suiteName) }
             let root = temp.appendingPathComponent("Library")
-            let model = MacModel(root: root)
+            let model = MacModel(root: root, preferences: preferences)
             await model.start()
             await model.importFile(cbz)
             for _ in 0..<50 {
@@ -57,9 +61,56 @@ enum NativeSmoke {
                 if model.image != nil || model.error != nil { break }
                 try await Task.sleep(nanoseconds: 20_000_000)
             }
-            let restored = MacModel(root: root)
+            let restored = MacModel(root: root, preferences: preferences)
             await restored.start()
             try require(restored.books.count == 1 && restored.books.first?.page == 1, "persistent reading progress")
+            guard let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns") else {
+                throw NativeError.message("App icon is missing from the bundle.")
+            }
+            try require(NSImage(contentsOf: iconURL) != nil, "native ICNS resource decodes")
+            try require(Bundle.main.object(forInfoDictionaryKey: "CFBundleIconFile") as? String == "AppIcon", "bundle declares native app icon")
+            try require(NativeReaderLayout.indices(page: 0, count: 5, mode: .spread, coverAlone: true) == [0], "spread cover displayed alone")
+            try require(NativeReaderLayout.indices(page: 2, count: 5, mode: .spread, coverAlone: true) == [1, 2], "spread pairing after cover")
+            try require(NativeReaderLayout.destination(page: 3, count: 5, mode: .spread, coverAlone: true, delta: -1) == 1, "backward spread navigation")
+            try require(NativeReaderLayout.destination(page: 4, count: 5, mode: .spread, coverAlone: false, delta: 1) == nil, "last spread boundary")
+            let session = model.readerSession
+            let first = try await model.readerContent(at: 0, session: session)
+            let cached = try await model.readerContent(at: 0, session: session)
+            try require(first.image === cached.image, "page cache reuses decoded image")
+            await model.importFile(cbz)
+            try require(model.books.count == 1, "reimport does not duplicate a local book")
+            model.readerMode = .spread
+            model.coverAlone = false
+            model.rightToLeft = true
+            model.renderPage(0)
+            model.turnVisual(-1)
+            try require(model.page == 2, "RTL left arrow advances one spread")
+            model.turnVisual(1)
+            try require(model.page == 0, "RTL right arrow returns one spread")
+            let preferencesReload = MacModel(root: root, preferences: preferences)
+            try require(preferencesReload.readerMode == .spread && preferencesReload.rightToLeft && !preferencesReload.coverAlone, "reading preferences persist")
+            for mode in NativeReaderMode.allCases {
+                model.readerMode = mode
+                model.renderPage(0)
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 720),
+                    styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+                window.contentViewController = NSHostingController(rootView: NativeReaderView(model: model))
+                window.makeKeyAndOrderFront(nil)
+                try await Task.sleep(nanoseconds: 800_000_000)
+                if let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                    view.cacheDisplay(in: view.bounds, to: rep)
+                    if let data = rep.representation(using: .png, properties: [:]) {
+                        try data.write(to: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("build/reader-\(mode.rawValue).png"))
+                    }
+                }
+                window.orderOut(nil)
+            }
+            model.closeReader()
+            var staleRejected = false
+            do { _ = try await model.readerContent(at: 0, session: session) } catch { staleRejected = true }
+            try require(staleRejected, "old document load cannot overwrite new reader")
+            model.readerMode = .single
+            model.rightToLeft = false
             model.sources.append(.demo())
             model.sourceKey = "demo"
             model.query = "fixture"

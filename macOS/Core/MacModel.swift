@@ -14,6 +14,15 @@ struct SavedBook: Codable, Identifiable {
     var page = 0
 }
 
+struct NativeReaderContent {
+    var image: NSImage?
+    var text: String?
+}
+final class NativePageCacheEntry {
+    let content: NativeReaderContent
+    init(_ content: NativeReaderContent) { self.content = content }
+}
+
 @MainActor
 final class MacModel: ObservableObject {
     @Published var sources: [AidokuRunner.Source] = []
@@ -34,6 +43,32 @@ final class MacModel: ObservableObject {
     @Published var showReader = false
     @Published var hasNextResults = false
 
+    @Published var readerMode: NativeReaderMode = .single {
+        didSet { preferences.set(readerMode.rawValue, forKey: "mac.reader.mode") }
+    }
+    @Published var rightToLeft = false {
+        didSet { preferences.set(rightToLeft, forKey: "mac.reader.rtl") }
+    }
+    @Published var coverAlone = true {
+        didSet { preferences.set(coverAlone, forKey: "mac.reader.coverAlone") }
+    }
+    @Published var readerFit: NativeReaderFit = .page {
+        didSet { preferences.set(readerFit.rawValue, forKey: "mac.reader.fit") }
+    }
+    @Published var readerBackground: NativeReaderBackground = .dark {
+        didSet { preferences.set(readerBackground.rawValue, forKey: "mac.reader.background") }
+    }
+    @Published var readerZoom = 1.0
+    @Published var readerSession = UUID()
+    @Published var pageLoading = false
+    @Published var pageError: String?
+    @Published var currentChapterKey: String?
+    @Published var exportBusy = false
+    @Published var exportProgress = ""
+    @Published var libraryQuery = ""
+    private let pageCache = NSCache<NSNumber, NativePageCacheEntry>()
+    private var pageLoads: [Int: Task<NativeReaderContent, Error>] = [:]
+    private let preferences: UserDefaults
     private let root: URL
     private var started = false
     private var activeBook: UUID?
@@ -49,7 +84,15 @@ final class MacModel: ObservableObject {
     private var generation = UUID()
     private var resultPage = 1
 
-    init(root: URL? = nil) {
+    init(root: URL? = nil, preferences: UserDefaults = .standard) {
+        self.preferences = preferences
+        self.readerMode = NativeReaderMode(rawValue: preferences.string(forKey: "mac.reader.mode") ?? "") ?? .single
+        self.rightToLeft = preferences.bool(forKey: "mac.reader.rtl")
+        self.coverAlone = preferences.object(forKey: "mac.reader.coverAlone") as? Bool ?? true
+        self.readerFit = NativeReaderFit(rawValue: preferences.string(forKey: "mac.reader.fit") ?? "") ?? .page
+        self.readerBackground = NativeReaderBackground(rawValue: preferences.string(forKey: "mac.reader.background") ?? "") ?? .dark
+        pageCache.countLimit = 12
+        pageCache.totalCostLimit = 128 * 1024 * 1024
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("app.aidoku.macOS")
     }
@@ -69,7 +112,7 @@ final class MacModel: ObservableObject {
             }
             sources.sort { $0.name < $1.name }
             sourceKey = sources.first?.key ?? ""
-            listURL = UserDefaults.standard.string(forKey: "mac.sourceListURL") ?? ""
+            listURL = preferences.string(forKey: "mac.sourceListURL") ?? ""
         } catch { self.error = error.localizedDescription }
     }
 
@@ -88,6 +131,14 @@ final class MacModel: ObservableObject {
             if url.pathExtension.lowercased() == "aix" { try await installSource(url); return }
             let access = url.startAccessingSecurityScopedResource()
             defer { if access { url.stopAccessingSecurityScopedResource() } }
+            if let existing = books.first(where: { book in
+                guard let data = book.bookmark else { return false }
+                var stale = false
+                return (try? URL(resolvingBookmarkData: data, options: [.withoutUI], bookmarkDataIsStale: &stale))?.standardizedFileURL == url.standardizedFileURL
+            }) {
+                try openLocal(url, book: existing)
+                return
+            }
             let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
             let title = url.deletingPathExtension().lastPathComponent
             let series = LocalFileNameParser.parseMangaSeries(from: title)
@@ -153,7 +204,7 @@ final class MacModel: ObservableObject {
             }
             let list = try JSONDecoder().decode(CodableSourceList.self, from: data).into(url: url)
             externalSources = list.sources
-            UserDefaults.standard.set(listURL, forKey: "mac.sourceListURL")
+            preferences.set(listURL, forKey: "mac.sourceListURL")
         } catch { self.error = error.localizedDescription }
     }
 
@@ -194,6 +245,7 @@ final class MacModel: ObservableObject {
         do {
             manga = try await source.getMangaUpdate(manga: item, needsDetails: true, needsChapters: true)
             activeSource = source
+            currentChapterKey = nil
         } catch { self.error = error.localizedDescription }
     }
 
@@ -235,6 +287,7 @@ final class MacModel: ObservableObject {
             resetReader()
             activeSource = source
             pages = loaded
+            currentChapterKey = chapter.key
             pageCount = loaded.count
             readerTitle = manga.title + " · " + (chapter.title ?? chapter.key)
             addToLibrary()
@@ -250,6 +303,7 @@ final class MacModel: ObservableObject {
 
     private func openLocal(_ url: URL, book: SavedBook) throws {
         resetReader()
+        currentChapterKey = nil
         hasAccess = url.startAccessingSecurityScopedResource()
         accessURL = url
         let directory = (try url.resourceValues(forKeys: [.isDirectoryKey])).isDirectory == true
@@ -278,6 +332,12 @@ final class MacModel: ObservableObject {
     private func resetReader() {
         imageTask?.cancel()
         generation = UUID()
+        readerSession = UUID()
+        pageLoads.values.forEach { $0.cancel() }
+        pageLoads.removeAll()
+        pageCache.removeAllObjects()
+        pageLoading = false
+        pageError = nil
         if hasAccess { accessURL?.stopAccessingSecurityScopedResource() }
         hasAccess = false
         accessURL = nil
@@ -285,55 +345,131 @@ final class MacModel: ObservableObject {
         image = nil; pageText = nil; pageCount = 0; page = 0; showReader = false
     }
 
-    func movePage(_ delta: Int) { renderPage(page + delta) }
-
+    var visiblePageIndices: [Int] {
+        NativeReaderLayout.indices(page: page, count: pageCount, mode: readerMode, coverAlone: coverAlone)
+    }
+    func pageDestination(_ delta: Int) -> Int? {
+        NativeReaderLayout.destination(page: page, count: pageCount, mode: readerMode, coverAlone: coverAlone, delta: delta)
+    }
+    func movePage(_ delta: Int) {
+        if let destination = pageDestination(delta) { renderPage(destination) }
+    }
+    func turnVisual(_ direction: Int) { movePage(rightToLeft ? -direction : direction) }
+    func closeReader() {
+        resetReader()
+        currentChapterKey = nil
+    }
+    func recordVisiblePage(_ index: Int) {
+        guard index >= 0, index < pageCount else { return }
+        page = index
+        if let i = books.firstIndex(where: { $0.id == activeBook }), books[i].page != index {
+            books[i].page = index
+            save()
+        }
+    }
     func renderPage(_ requested: Int) {
         guard pageCount > 0 else { return }
         imageTask?.cancel()
         let token = UUID()
         generation = token
+        let session = readerSession
         let index = min(max(0, requested), pageCount - 1)
         page = index
-        image = nil; pageText = nil
+        image = nil; pageText = nil; pageError = nil; pageLoading = true
         imageTask = Task {
             do {
-                let result: NSImage?
-                var text: String?
-                if let pdf {
-                    result = pdf.page(at: index)?.thumbnail(of: NSSize(width: 1800, height: 2600), for: .mediaBox)
-                } else if let archive, let entry = archive.entry(at: localPaths[index]) {
-                    result = NSImage(data: try NativeFiles.data(archive: archive, entry: entry))
-                } else if let folder {
-                    let url = folder.appendingPathComponent(localPaths[index])
-                    guard (try url.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? 0 <= NativeFiles.entryLimit else {
-                        throw NativeError.message("Image exceeds 100 MB.")
-                    }
-                    result = NSImage(contentsOf: url)
-                } else {
-                    switch pages[index].content {
-                    case .text(let value): text = value; result = nil
-                    case .image(let value): result = value.image
-                    case .url(let url, let context):
-                        result = try await fetchImage(url, context: context)
-                    case .zipFile:
-                        throw NativeError.message("Online ZIP-backed pages are not yet supported.")
-                    }
-                }
+                let content = try await readerContent(at: index, session: session)
                 try Task.checkCancellation()
                 guard generation == token else { return }
-                guard result != nil || text != nil else { throw NativeError.message("Page image could not be decoded.") }
-                image = result
-                pageText = text
-                if let i = books.firstIndex(where: { $0.id == activeBook }) { books[i].page = index; save() }
+                image = content.image
+                pageText = content.text
+                pageLoading = false
+                recordVisiblePage(index)
+                // A small cache preloads the neighboring pages, not the whole chapter.
+                for adjacent in [index - 1, index + 1] where (0..<pageCount).contains(adjacent) {
+                    Task { _ = try? await self.readerContent(at: adjacent, session: session) }
+                }
             } catch is CancellationError {
-            } catch { if generation == token { self.error = error.localizedDescription } }
+            } catch {
+                if generation == token { pageLoading = false; pageError = error.localizedDescription }
+            }
         }
     }
 
-    private func fetchImage(_ url: URL, context: PageContext?) async throws -> NSImage? {
+    func readerContent(at index: Int, session: UUID) async throws -> NativeReaderContent {
+        guard session == readerSession, (0..<pageCount).contains(index) else { throw CancellationError() }
+        if let cached = pageCache.object(forKey: NSNumber(value: index)) { return cached.content }
+        if let task = pageLoads[index] { return try await task.value }
+        let source = activeSource
+        let task = Task<NativeReaderContent, Error> {
+            let content: NativeReaderContent
+            if let pdf {
+                content = .init(image: pdf.page(at: index)?.thumbnail(of: NSSize(width: 2400, height: 3400), for: .mediaBox))
+            } else if let archive, let entry = archive.entry(at: localPaths[index]) {
+                content = .init(image: NSImage(data: try NativeFiles.data(archive: archive, entry: entry)))
+            } else if let folder {
+                let url = folder.appendingPathComponent(localPaths[index])
+                guard (try url.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? 0 <= NativeFiles.entryLimit else {
+                    throw NativeError.message("Image exceeds 100 MB.")
+                }
+                content = .init(image: NSImage(contentsOf: url))
+            } else {
+                switch pages[index].content {
+                case .text(let value): content = .init(text: value)
+                case .image(let value): content = .init(image: value.image)
+                case .url(let url, let context): content = .init(image: try await fetchImage(url, context: context, source: source))
+                case .zipFile: throw NativeError.message("Online ZIP-backed pages are not yet supported.")
+                }
+            }
+            try Task.checkCancellation()
+            guard content.image != nil || content.text != nil else { throw NativeError.message("Page image could not be decoded.") }
+            return content
+        }
+        pageLoads[index] = task
+        do {
+            let content = try await task.value
+            guard session == readerSession else { throw CancellationError() }
+            pageLoads[index] = nil
+            let cost: Int
+            if let image = content.image {
+                let rep = image.representations.first
+                let pixels = Double(rep?.pixelsWide ?? 0) * Double(rep?.pixelsHigh ?? 0)
+                cost = Int(min(max(pixels * 4, 1), 256 * 1024 * 1024))
+            } else { cost = content.text?.utf8.count ?? 1 }
+            pageCache.setObject(NativePageCacheEntry(content), forKey: NSNumber(value: index), cost: cost)
+            return content
+        } catch {
+            if session == readerSession { pageLoads[index] = nil }
+            throw error
+        }
+    }
+
+    var orderedChapters: [AidokuRunner.Chapter] {
+        // Sources conventionally return newest first; numbered chapters make order explicit.
+        let chapters = manga?.chapters ?? []
+        if chapters.allSatisfy({ $0.chapterNumber != nil }) {
+            return chapters.sorted {
+                if $0.volumeNumber != $1.volumeNumber { return ($0.volumeNumber ?? 0) < ($1.volumeNumber ?? 0) }
+                return ($0.chapterNumber ?? 0) < ($1.chapterNumber ?? 0)
+            }
+        }
+        return chapters.reversed()
+    }
+    func adjacentChapter(_ delta: Int) -> AidokuRunner.Chapter? {
+        let chapters = orderedChapters
+        guard let i = chapters.firstIndex(where: { $0.key == currentChapterKey }),
+              chapters.indices.contains(i + delta) else { return nil }
+        return chapters[i + delta]
+    }
+    func changeChapter(_ delta: Int) async {
+        guard !exportBusy, let chapter = adjacentChapter(delta) else { return }
+        await readChapter(chapter)
+    }
+
+    private func fetchImage(_ url: URL, context: PageContext?, source: AidokuRunner.Source?) async throws -> NSImage? {
         guard ["http", "https"].contains(url.scheme ?? "") else { throw NativeError.message("Unsupported online page URL.") }
         var request = URLRequest(url: url)
-        if let source = activeSource, source.features.providesImageRequests {
+        if let source, source.features.providesImageRequests {
             request = try await source.getImageRequest(url: url.absoluteString, context: context)
         }
         request.timeoutInterval = 30
@@ -344,7 +480,7 @@ final class MacModel: ObservableObject {
         guard data.count <= NativeFiles.entryLimit, let platform = PlatformImage(data: data) else {
             throw NativeError.message("Invalid or oversized page image.")
         }
-        if let source = activeSource, source.features.processesPages {
+        if let source, source.features.processesPages {
             let ref = try await source.store(value: platform)
             do {
                 let headers = response.allHeaderFields.reduce(into: [String: String]()) { $0[String(describing: $1.key)] = String(describing: $1.value) }
