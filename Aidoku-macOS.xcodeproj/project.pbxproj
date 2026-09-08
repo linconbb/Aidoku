@@ -1,0 +1,46 @@
+// !$*UTF8*$!
+{archiveVersion = 1; classes = {}; objectVersion = 56; objects = {
+94FE7683AE2969A0A5E8466A = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "macOS/App/AidokuApp.swift"; sourceTree = SOURCE_ROOT; };
+D5856DE98BBD1E2D22C61AAA = { isa = PBXBuildFile; fileRef = 94FE7683AE2969A0A5E8466A; };
+64D30241C3A20C5814106CF6 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "macOS/Core/MacModel.swift"; sourceTree = SOURCE_ROOT; };
+99439FDD48EC038A57979825 = { isa = PBXBuildFile; fileRef = 64D30241C3A20C5814106CF6; };
+C1A743369C1E7E854E95707D = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "macOS/Core/NativeFiles.swift"; sourceTree = SOURCE_ROOT; };
+3E21ACB3BD705294372E8DD6 = { isa = PBXBuildFile; fileRef = C1A743369C1E7E854E95707D; };
+FAD5EF650D2C569F3B9DD119 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "macOS/Core/NativeSmoke.swift"; sourceTree = SOURCE_ROOT; };
+7F4B99F048F3612665BF5065 = { isa = PBXBuildFile; fileRef = FAD5EF650D2C569F3B9DD119; };
+4CCF7450A73BFEC12418CCCB = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "macOS/Features/RootView.swift"; sourceTree = SOURCE_ROOT; };
+0070F715EC40FD30AFEB5E9D = { isa = PBXBuildFile; fileRef = 4CCF7450A73BFEC12418CCCB; };
+3E4C5A837E944E6BCEF53B2B = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Aidoku/Core/Sources/BuiltIn/Local/LocalFileNameParser.swift"; sourceTree = SOURCE_ROOT; };
+098BC6478292A20939FE5AB9 = { isa = PBXBuildFile; fileRef = 3E4C5A837E944E6BCEF53B2B; };
+5566EEC6251D11AFBED2FAEE = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Aidoku/Extensions/ZIPFoundation/Archive.swift"; sourceTree = SOURCE_ROOT; };
+D6D87A6C359D01B3E3448236 = { isa = PBXBuildFile; fileRef = 5566EEC6251D11AFBED2FAEE; };
+C8E7D0A354211288EA74FCBE = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Aidoku/Core/Utilities/SemanticVersion.swift"; sourceTree = SOURCE_ROOT; };
+B0732F33CE38E83D6DB98C8B = { isa = PBXBuildFile; fileRef = C8E7D0A354211288EA74FCBE; };
+286F4BA34DB87ECC5990CF8F = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Aidoku/Core/Sources/SourceList/SourceList.swift"; sourceTree = SOURCE_ROOT; };
+462D1E002AA96E9ED003AED1 = { isa = PBXBuildFile; fileRef = 286F4BA34DB87ECC5990CF8F; };
+B323F23DE4FC921CB54329DA = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Aidoku/Core/Sources/SourceList/ExternalSourceInfo.swift"; sourceTree = SOURCE_ROOT; };
+A6775C9D90DEE8B7E6ABF97A = { isa = PBXBuildFile; fileRef = B323F23DE4FC921CB54329DA; };
+9C086F5AC377147CB51D9292 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Aidoku/Core/Sources/SourceInfo.swift"; sourceTree = SOURCE_ROOT; };
+38DECFDDA9E404E7B22A8B4D = { isa = PBXBuildFile; fileRef = 9C086F5AC377147CB51D9292; };
+B79606FB3AFEA5BD1609ED40 = { isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "macOS/Aidoku-MACOS.xcconfig"; sourceTree = SOURCE_ROOT; };
+A8792157CB4F27FB949C035F = { isa = PBXFileReference; explicitFileType = wrapper.application; path = Aidoku.app; sourceTree = BUILT_PRODUCTS_DIR; };
+0A3E27B8CA818264D75C8D81 = { isa = PBXGroup; children = (A8792157CB4F27FB949C035F,); name = Products; sourceTree = "<group>"; };
+AD936FCBED631FA67E05C3EA = { isa = PBXGroup; children = (94FE7683AE2969A0A5E8466A,64D30241C3A20C5814106CF6,C1A743369C1E7E854E95707D,FAD5EF650D2C569F3B9DD119,4CCF7450A73BFEC12418CCCB,3E4C5A837E944E6BCEF53B2B,5566EEC6251D11AFBED2FAEE,C8E7D0A354211288EA74FCBE,286F4BA34DB87ECC5990CF8F,B323F23DE4FC921CB54329DA,9C086F5AC377147CB51D9292,B79606FB3AFEA5BD1609ED40,0A3E27B8CA818264D75C8D81,); sourceTree = "<group>"; };
+878A52FC5FF6A57D50B7B870 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (D5856DE98BBD1E2D22C61AAA,99439FDD48EC038A57979825,3E21ACB3BD705294372E8DD6,7F4B99F048F3612665BF5065,0070F715EC40FD30AFEB5E9D,098BC6478292A20939FE5AB9,D6D87A6C359D01B3E3448236,B0732F33CE38E83D6DB98C8B,462D1E002AA96E9ED003AED1,A6775C9D90DEE8B7E6ABF97A,38DECFDDA9E404E7B22A8B4D,); runOnlyForDeploymentPostprocessing = 0; };
+21AC0748D94735D2E4823583 = { isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/weichsel/ZIPFoundation.git"; requirement = {kind = revision; revision = 22787ffb59de99e5dc1fbfe80b19c97a904ad48d;}; };
+12481F91B113B9619DE214BA = { isa = XCSwiftPackageProductDependency; package = 21AC0748D94735D2E4823583; productName = ZIPFoundation; };
+96705D65B0F86A6F7AD44517 = { isa = PBXBuildFile; productRef = 12481F91B113B9619DE214BA; };
+B24032FB3FBE0F3B7162782E = { isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/Aidoku/AidokuRunner"; requirement = {kind = revision; revision = cc4d06ff399e7169b9c647bccede7cb29bc805c6;}; };
+667CE5E0F19E78A6E5C53F84 = { isa = XCSwiftPackageProductDependency; package = B24032FB3FBE0F3B7162782E; productName = AidokuRunner; };
+9CB933975C58CBF96C864CA3 = { isa = PBXBuildFile; productRef = 667CE5E0F19E78A6E5C53F84; };
+E2AA269EB967A8853A258BFA = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (96705D65B0F86A6F7AD44517,9CB933975C58CBF96C864CA3,); runOnlyForDeploymentPostprocessing = 0; };
+41D311A605520FC7B8B9A980 = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+73EBF6644258C120893E685D = { isa = XCBuildConfiguration; buildSettings = {SWIFT_OPTIMIZATION_LEVEL = "-Onone";}; name = Debug; };
+0B0C687DF8B6B8DC790B519C = { isa = XCBuildConfiguration; buildSettings = {SWIFT_OPTIMIZATION_LEVEL = "-O"; SWIFT_COMPILATION_MODE = wholemodule;}; name = Release; };
+76F8DEC3DFE0BDB465198890 = { isa = XCConfigurationList; buildConfigurations = (73EBF6644258C120893E685D,0B0C687DF8B6B8DC790B519C,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+6C7EFF6369083C8E1F2B1994 = { isa = XCBuildConfiguration; baseConfigurationReference = B79606FB3AFEA5BD1609ED40; buildSettings = {SWIFT_OPTIMIZATION_LEVEL = "-Onone";}; name = Debug; };
+DD75E2CB1C510A828AC72D96 = { isa = XCBuildConfiguration; baseConfigurationReference = B79606FB3AFEA5BD1609ED40; buildSettings = {SWIFT_OPTIMIZATION_LEVEL = "-O"; SWIFT_COMPILATION_MODE = wholemodule;}; name = Release; };
+1B672BF3DA427763BF644BE3 = { isa = XCConfigurationList; buildConfigurations = (6C7EFF6369083C8E1F2B1994,DD75E2CB1C510A828AC72D96,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+34A04005BCAF206EEC990BD9 = { isa = PBXNativeTarget; name = "Aidoku-macOS"; productName = Aidoku; productReference = A8792157CB4F27FB949C035F; productType = "com.apple.product-type.application"; buildConfigurationList = 1B672BF3DA427763BF644BE3; buildPhases = (878A52FC5FF6A57D50B7B870,E2AA269EB967A8853A258BFA,41D311A605520FC7B8B9A980,); buildRules = (); dependencies = (); packageProductDependencies = (12481F91B113B9619DE214BA,667CE5E0F19E78A6E5C53F84,); };
+244210E48437B6556980A702 = { isa = PBXProject; attributes = {LastUpgradeCheck = 1600;}; buildConfigurationList = 76F8DEC3DFE0BDB465198890; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; knownRegions = (en,Base,); mainGroup = AD936FCBED631FA67E05C3EA; productRefGroup = 0A3E27B8CA818264D75C8D81; projectDirPath = ""; projectRoot = ""; targets = (34A04005BCAF206EEC990BD9,); packageReferences = (21AC0748D94735D2E4823583,B24032FB3FBE0F3B7162782E,); };
+}; rootObject = 244210E48437B6556980A702;}
