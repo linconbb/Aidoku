@@ -25,7 +25,7 @@ struct RootView: View {
                 else { library }
             }
         }
-        .onChange(of: section) { _ in model.manga = nil; model.showReader = false }
+        .onChange(of: section) { model.manga = nil; model.showReader = false }
         .alert("Aidoku", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }

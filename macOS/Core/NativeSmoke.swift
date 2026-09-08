@@ -37,7 +37,7 @@ enum NativeSmoke {
             let unsafe = temp.appendingPathComponent("unsafe.aix")
             do {
                 let archive = try Archive(url: unsafe, accessMode: .create)
-                try archive.addEntry(with: "../outside", type: .file, uncompressedSize: 1) { _, _ in Data([1]) }
+                try archive.addEntry(with: "../outside", type: .file, uncompressedSize: Int64(1)) { _, _ in Data([1]) }
             }
             var rejected = false
             do { try NativeFiles.unpackSource(unsafe, to: temp.appendingPathComponent("unpacked")) }
@@ -60,6 +60,19 @@ enum NativeSmoke {
             let restored = MacModel(root: root)
             await restored.start()
             try require(restored.books.count == 1 && restored.books.first?.page == 1, "persistent reading progress")
+            model.sources.append(.demo())
+            model.sourceKey = "demo"
+            model.query = "fixture"
+            await model.search()
+            try require(model.results.first?.key == "fixture", "shared engine search through native model")
+            await model.selectManga(model.results[0])
+            try require(model.manga?.chapters?.count == 4, "shared engine manga and chapters")
+            await model.readChapter(model.manga!.chapters!.first!)
+            for _ in 0..<50 {
+                if model.pageText != nil || model.error != nil { break }
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+            try require(model.pageText?.contains("text only chapter") == true, "shared engine page list through native reader")
             if let payload = ProcessInfo.processInfo.environment["AIDOKU_TEST_PAYLOAD"] {
                 let source = try await AidokuRunner.Source(url: URL(fileURLWithPath: payload))
                 try require(source.key == "test", "official WASM fixture initialization")
