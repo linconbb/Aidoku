@@ -8,7 +8,11 @@ struct AidokuMacApp: App {
         WindowGroup("Aidoku — Native macOS Preview") {
             RootView(model: model)
                 .frame(minWidth: 900, minHeight: 600)
-                .task { await model.start() }
+                .task {
+                    if ProcessInfo.processInfo.arguments.contains("--smoke-test") {
+                        await NativeSmoke.run()
+                    } else { await model.start() }
+                }
                 .onOpenURL { url in Task { await model.importFile(url) } }
         }
         .commands {

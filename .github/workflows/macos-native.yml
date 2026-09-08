@@ -20,6 +20,8 @@ jobs:
           xcodebuild -version
       - name: Build native macOS and package DMG
         run: bash scripts/build-macos.sh
+      - name: Native runtime smoke tests
+        run: bash scripts/smoke-macos.sh
       - name: Upload DMG
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -37,5 +39,28 @@ jobs:
           path: |
             build/macos-build.log
             build/macho-platform.txt
+            build/smoke.log
             Aidoku-macOS.xcodeproj
+          retention-days: 3
+  ios-baseline:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build unchanged iOS target
+        run: |
+          set -o pipefail
+          mkdir -p build
+          xcodebuild -project Aidoku.xcodeproj -scheme Aidoku -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/iOS -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build/ios-build.log
+      - name: Upload iOS baseline log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: iOS-baseline-log
+          path: build/ios-build.log
           retention-days: 3
