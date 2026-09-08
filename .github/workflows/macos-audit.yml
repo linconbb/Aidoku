@@ -1,0 +1,37 @@
+name: Native macOS compatibility audit
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect Apple toolchain
+        run: |
+          uname -m
+          xcodebuild -version
+          xcodebuild -showsdks
+      - name: Audit platform dependencies
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import re
+          files = list(Path('Aidoku').rglob('*.swift'))
+          modules = ('UIKit', 'BackgroundTasks', 'Photos', 'AVFAudio', 'AidokuRunner', 'AsyncDisplayKit', 'Gifu')
+          report = ['# Native macOS port audit', '', 'This is a compatibility audit, not a completed macOS app build.', '']
+          for module in modules:
+              hits = [str(p) for p in files if re.search(r'\bimport\s+' + module + r'\b', p.read_text())]
+              report += [f'## {module}: {len(hits)} files', *hits, '']
+          Path('macos-audit.md').write_text('\n'.join(report))
+          print('\n'.join(report))
+          PYCODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macOS-compatibility-audit
+          path: macos-audit.md
+          retention-days: 3
