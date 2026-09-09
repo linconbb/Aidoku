@@ -4,6 +4,8 @@ cd "$(dirname "$0")/.."
 source_icon="Aidoku/App/Resources/Assets.xcassets/AppIcon.appiconset/Icon.png"
 test -f "$source_icon"
 mkdir -p build/AppIcon.iconset macOS/Resources
+swift scripts/round-macos-icon.swift "$source_icon" build/AppIcon-rounded.png
+source_icon="build/AppIcon-rounded.png"
 for size in 16 32 128 256 512; do
   sips -z "$size" "$size" "$source_icon" --out "build/AppIcon.iconset/icon_$size""x$size.png" >/dev/null
   retina=$((size * 2))

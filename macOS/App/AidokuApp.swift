@@ -7,7 +7,7 @@ struct AidokuMacApp: App {
     var body: some Scene {
         WindowGroup("Aidoku — Native macOS Preview") {
             RootView(model: model)
-                .frame(minWidth: 900, minHeight: 600)
+                .frame(minWidth: 320, minHeight: 420)
                 .task {
                     if ProcessInfo.processInfo.arguments.contains("--smoke-test") {
                         await NativeSmoke.run()
@@ -15,6 +15,8 @@ struct AidokuMacApp: App {
                 }
                 .onOpenURL { url in Task { await model.importFile(url) } }
         }
+        .defaultSize(width: 1000, height: 720)
+        .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("Open Comic or Source…") { model.chooseFile() }.keyboardShortcut("o")

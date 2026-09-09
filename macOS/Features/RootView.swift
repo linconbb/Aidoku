@@ -6,23 +6,31 @@ struct RootView: View {
     @State private var section = "library"
     @State private var sourceToRemove: NativeInstalledSource?
     var body: some View {
-        NavigationSplitView {
-            List(selection: $section) {
-                Label("Library", systemImage: "books.vertical").tag("library")
-                Label("Browse", systemImage: "magnifyingglass").tag("browse")
-                Label("Sources", systemImage: "puzzlepiece.extension").tag("sources")
-            }
-            .navigationTitle("Aidoku")
-            .navigationSplitViewColumnWidth(180)
-            .toolbar { Button { model.chooseFile() } label: { Label("Open", systemImage: "plus") } }
-        } detail: {
-            VStack(spacing: 0) {
-                if model.busy { ProgressView().padding(8) }
-                if model.showReader { NativeReaderView(model: model).id(model.readerSession) }
-                else if let manga = model.manga { details(manga) }
-                else if section == "sources" { sources }
-                else if section == "browse" { browse }
-                else { library }
+        GeometryReader { geometry in
+            if geometry.size.width < 680 {
+                VStack(spacing: 0) {
+                    HStack {
+                        Picker("导航", selection: $section) {
+                            Text("书库").tag("library")
+                            Text("浏览").tag("browse")
+                            Text("源").tag("sources")
+                        }.pickerStyle(.segmented)
+                        Button { model.chooseFile() } label: { Image(systemName: "plus") }.help("打开漫画或源")
+                    }.padding(8)
+                    Divider()
+                    content
+                }
+            } else {
+                NavigationSplitView {
+                    List(selection: $section) {
+                        Label("书库", systemImage: "books.vertical").tag("library")
+                        Label("浏览", systemImage: "square.grid.2x2").tag("browse")
+                        Label("源", systemImage: "puzzlepiece.extension").tag("sources")
+                    }
+                    .navigationTitle("Aidoku")
+                    .navigationSplitViewColumnWidth(min: 140, ideal: 170, max: 220)
+                    .toolbar { Button { model.chooseFile() } label: { Label("打开", systemImage: "plus") } }
+                } detail: { content }
             }
         }
         .onChange(of: section) { model.manga = nil; model.closeReader() }
@@ -113,36 +121,22 @@ struct RootView: View {
         }.padding()
     }
 
-    private var browse: some View {
-        VStack {
-            HStack {
-                Picker("Source", selection: $model.sourceKey) {
-                    ForEach(model.sources) { Text($0.name).tag($0.key) }
-                }
-                TextField("Search manga", text: $model.query).onSubmit { Task { await model.search() } }
-                Button("Search") { Task { await model.search() } }.disabled(model.busy || model.sourceKey.isEmpty)
-            }
-            List(model.results, id: \.key) { manga in
-                Button { Task { await model.selectManga(manga) } } label: {
-                    HStack {
-                        if let cover = manga.cover, let url = URL(string: cover) {
-                            AsyncImage(url: url) { image in image.resizable().scaledToFit() }
-                                placeholder: { Image(systemName: "book.closed") }.frame(width: 50, height: 70)
-                        }
-                        Text(manga.title)
-                    }
-                }.buttonStyle(.plain)
-            }
-            if model.hasNextResults { Button("Load More") { Task { await model.search(next: true) } }.disabled(model.busy) }
-        }.padding()
+    private var content: some View {
+        VStack(spacing: 0) {
+            if model.busy { ProgressView().controlSize(.small).padding(4) }
+            if model.showReader { NativeReaderView(model: model).id(model.readerSession) }
+            else if let manga = model.manga { details(manga) }
+            else if section == "sources" { sources }
+            else if section == "browse" { NativeBrowseView(model: model) }
+            else { library }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func details(_ manga: AidokuRunner.Manga) -> some View {
         VStack(alignment: .leading) {
-            HStack {
+            VStack(alignment: .leading, spacing: 8) {
                 Button("Back") { model.manga = nil }
                 Text(manga.title).font(.title2)
-                Spacer()
                 if let chapter = model.resumeChapter {
                     Button("继续阅读") { Task { await model.readChapter(chapter) } }.disabled(model.busy)
                 }

@@ -17,13 +17,12 @@ struct NativeReaderView: View {
     }
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Button { model.closeReader() } label: { Label("返回", systemImage: "chevron.backward") }
-                Text(model.readerTitle).lineLimit(1).help(model.readerTitle)
-                Spacer(minLength: 8)
+            HStack(spacing: 8) {
+                Button { model.closeReader() } label: { Image(systemName: "chevron.backward") }
+                Text(model.readerTitle).lineLimit(1).frame(minWidth: 0, maxWidth: .infinity, alignment: .leading).help(model.readerTitle)
                 Picker("阅读模式", selection: $model.readerMode) {
                     ForEach(NativeReaderMode.allCases) { Text($0.title).tag($0) }
-                }.labelsHidden().frame(width: 110)
+                }.labelsHidden().frame(width: 90)
                 Button { settings.toggle() } label: { Image(systemName: "slider.horizontal.3") }
                     .help("阅读设置")
                     .popover(isPresented: $settings) { NativeReaderSettings(model: model).padding().frame(width: 310) }
@@ -84,7 +83,20 @@ struct NativeReaderView: View {
                 }.padding(8)
             }
             Divider()
-            HStack(spacing: 10) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { pageControls; Spacer(); zoomControls }
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) { pageControls }
+                    HStack { Spacer(); zoomControls; Spacer() }
+                }
+            }.padding(8)
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear { jump = "\(model.page + 1)" }
+        .onChange(of: model.page) { jump = "\(model.page + 1)" }
+        .onChange(of: model.readerMode) { scrollPage = model.page }
+    }
+    @ViewBuilder private var pageControls: some View {
                 Button { Task { await model.changeChapter(-1) } } label: { Image(systemName: "backward.end") }
                     .help("上一章").disabled(model.adjacentChapter(-1) == nil || model.busy)
                 Button { model.turnVisual(-1) } label: { Image(systemName: "chevron.left") }
@@ -98,17 +110,13 @@ struct NativeReaderView: View {
                     .disabled(model.pageDestination(model.rightToLeft ? -1 : 1) == nil)
                 Button { Task { await model.changeChapter(1) } } label: { Image(systemName: "forward.end") }
                     .help("下一章").disabled(model.adjacentChapter(1) == nil || model.busy)
-                Spacer()
+    }
+    @ViewBuilder private var zoomControls: some View {
                 Button { model.readerZoom = max(0.5, model.readerZoom - 0.25) } label: { Image(systemName: "minus.magnifyingglass") }
                 Button("\(Int(model.readerZoom * 100))%") { model.readerZoom = 1 }.frame(width: 54)
                 Button { model.readerZoom = min(3, model.readerZoom + 0.25) } label: { Image(systemName: "plus.magnifyingglass") }
-            }.padding(10)
-        }
-        .background(Color(nsColor: .windowBackgroundColor))
-        .onAppear { jump = "\(model.page + 1)" }
-        .onChange(of: model.page) { jump = "\(model.page + 1)" }
-        .onChange(of: model.readerMode) { scrollPage = model.page }
     }
+
 }
 
 struct NativeReaderSettings: View {

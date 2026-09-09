@@ -27,6 +27,25 @@ enum NativeSmoke {
               let png = bitmap.representation(using: .png, properties: [:]) else { throw NativeError.message("Could not draw test page") }
         return png
     }
+    static func capture<V: View>(_ view: V, name: String, width: CGFloat) async throws {
+        let size = NSSize(width: width, height: 640)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingController(rootView: view.frame(width: width, height: 640))
+        window.contentViewController = host
+        window.setContentSize(size)
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        try await Task.sleep(nanoseconds: 700_000_000)
+        guard let content = window.contentView, let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else {
+            throw NativeError.message("Could not capture " + name)
+        }
+        try require(abs(content.bounds.width - width) < 2, name + " requested width")
+        content.cacheDisplay(in: content.bounds, to: rep)
+        guard let data = rep.representation(using: .png, properties: [:]) else { throw NativeError.message("PNG failed") }
+        try data.write(to: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("build/" + name + ".png"))
+    }
     static func run() async {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent("AidokuTests-\(UUID().uuidString)")
         do {
@@ -81,6 +100,11 @@ enum NativeSmoke {
                 throw NativeError.message("App icon is missing from the bundle.")
             }
             try require(NSImage(contentsOf: iconURL) != nil, "native ICNS resource decodes")
+            let icon = NSImage(contentsOf: iconURL)!
+            guard let tiff = icon.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) else { throw NativeError.message("Icon bitmap missing") }
+            try require((bitmap.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.01, "icon has transparent outer corners")
+            try require((bitmap.colorAt(x: bitmap.pixelsWide / 10, y: bitmap.pixelsHigh / 10)?.alphaComponent ?? 1) < 0.01, "icon rounded corner mask")
+            try require((bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent ?? 0) > 0.9, "icon artwork remains opaque")
             try require(Bundle.main.object(forInfoDictionaryKey: "CFBundleIconFile") as? String == "AppIcon", "bundle declares native app icon")
             try require(NativeReaderLayout.indices(page: 0, count: 5, mode: .spread, coverAlone: true) == [0], "spread cover displayed alone")
             try require(NativeReaderLayout.indices(page: 2, count: 5, mode: .spread, coverAlone: true) == [1, 2], "spread pairing after cover")
@@ -127,7 +151,9 @@ enum NativeSmoke {
                 }
                 window.close()
             }
+            try await capture(RootView(model: model), name: "reader-narrow", width: 320)
             model.closeReader()
+            try await capture(RootView(model: model), name: "library-narrow", width: 320)
             var staleRejected = false
             do { _ = try await model.readerContent(at: 0, session: session) } catch { staleRejected = true }
             try require(staleRejected, "old document load cannot overwrite new reader")
@@ -158,8 +184,30 @@ enum NativeSmoke {
             if let payload = ProcessInfo.processInfo.environment["AIDOKU_TEST_PAYLOAD"] {
                 let source = try await AidokuRunner.Source(url: URL(fileURLWithPath: payload))
                 try require(source.key == "test", "official WASM fixture initialization")
-                _ = try await source.getHome()
+                let fixtureHome = try await source.getHome()
                 print("PASS: official WASM getHome")
+                model.closeReader(); model.manga = nil
+                model.sources.append(source); model.sourceKey = source.key
+                await model.loadBrowseHome()
+                try require(model.browseError == nil && model.home == fixtureHome, "source home loads through native model")
+                let fixtureListings = try await source.getListings()
+                try require(model.listings == fixtureListings, "source listings load through native model")
+                if let listing = fixtureListings.first {
+                    let expected = try await source.getMangaList(listing: listing, page: 1)
+                    await model.openListing(listing)
+                    try require(model.browseError == nil && model.results.map(\.key) == expected.entries.map(\.key), "listing opens through native model")
+                }
+                let posters: [AidokuRunner.Manga] = (1...8).map {
+                    .init(sourceKey: source.key, key: "poster-\($0)", title: "漫画海报 \($0) · Narrow window")
+                }
+                model.home = .init(components: [.init(title: "热门漫画", value: .bigScroller(entries: posters))])
+                model.results = posters; model.browseLoading = false; model.busy = false
+                try await capture(NativeBrowseView(model: model, automaticallyLoad: false), name: "browse-narrow", width: 320)
+                try await capture(NativeBrowseView(model: model, automaticallyLoad: false), name: "browse-wide", width: 900)
+                model.posterGrid = false
+                try await capture(NativeBrowseView(model: model, automaticallyLoad: false), name: "browse-list", width: 320)
+                model.sourceKey = "demo"
+                try require(model.home == nil && model.results.isEmpty && model.listings.isEmpty, "changing source clears old browsing content")
                 let package = temp.appendingPathComponent("test.aix")
                 do {
                     let archive = try Archive(url: package, accessMode: .create)

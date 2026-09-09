@@ -48,6 +48,9 @@ jobs:
             Aidoku-macOS.xcodeproj
             macOS/Resources/AppIcon.icns
             build/reader-*.png
+            build/*-narrow.png
+            build/browse-*.png
+            build/AppIcon-rounded.png
           retention-days: 3
   ios-baseline:
     if: inputs.verify_ios

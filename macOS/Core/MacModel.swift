@@ -41,9 +41,20 @@ final class MacModel: ObservableObject {
     @Published var sources: [AidokuRunner.Source] = []
     @Published var sourceKey = "" {
         didSet {
-            if oldValue != sourceKey { results = []; hasNextResults = false; resultPage = 1 }
+            if oldValue != sourceKey { results = []; hasNextResults = false; resultPage = 1; home = nil; listings = []; browseTitle = ""; loadedBrowseSource = ""; browseLoading = false; browseGeneration = UUID() }
         }
     }
+    @Published var home: AidokuRunner.Home?
+    @Published var listings: [AidokuRunner.Listing] = []
+    @Published var browseTitle = ""
+    @Published var browseLoading = false
+    @Published var browseError: String?
+    @Published var posterGrid = true
+    var loadedBrowseSource = ""
+    var browseGeneration = UUID()
+    var selectedListing: AidokuRunner.Listing?
+    var browseFilters: [AidokuRunner.FilterValue]?
+    var browsePage = 1
     @Published var query = ""
     @Published var results: [AidokuRunner.Manga] = []
     @Published var manga: AidokuRunner.Manga?
@@ -359,13 +370,21 @@ final class MacModel: ObservableObject {
     func search(next: Bool = false) async {
         guard !busy, let source = sources.first(where: { $0.key == sourceKey }) else { return }
         busy = true
+        let token = UUID()
+        browseGeneration = token
+        home = nil
+        selectedListing = nil
+        browseFilters = nil
+        browseLoading = false
+        browseTitle = query.isEmpty ? "全部漫画" : "搜索结果"
+        browseError = nil
         defer { busy = false }
         do {
             let searchQuery = query
             let append = next && resultSourceKey == source.key && resultQuery == searchQuery
             let requestedPage = append ? resultPage + 1 : 1
             let result = try await source.getSearchMangaList(query: searchQuery, page: requestedPage, filters: [])
-            guard sourceKey == source.key, query == searchQuery else { return }
+            guard browseGeneration == token, sourceKey == source.key, query == searchQuery else { return }
             resultPage = requestedPage
             resultQuery = searchQuery
             resultSourceKey = source.key
