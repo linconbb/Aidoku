@@ -1,35 +1,82 @@
-# macOS Preview 2 验证记录
+# macOS Preview 3 验证记录
 
-本次测试源码：`ae5533a1ad71563919ceb497589dd860b7c3ee28`。
+测试源码：`8ddb6176cee5dcd714c16a7811aab6fab406e069`。
 
-- [成功的云端构建与测试](https://github.com/linconbb/Aidoku/actions/runs/34184052864)
-- [DMG artifact](https://github.com/linconbb/Aidoku/actions/runs/34184052864/artifacts/10039946511)
-- [构建日志、截图及生成工程](https://github.com/linconbb/Aidoku/actions/runs/34184052864/artifacts/10039946949)
+本轮加入官方图标圆角与透明边距、320 × 420 点最小窗口、窄窗口顶部导航与阅读工具栏换行、源首页分区、分类列表、首页筛选入口、分类分页，以及海报墙/列表切换。封面请求使用源提供的请求头和封面处理接口，并使用有容量上限的内存缓存。
 
-标准 GitHub macOS runner 完成 macOS SDK arm64 Release 构建、ad-hoc signing 和 DMG 打包。DMG 包含 Aidoku.app 与 Applications 链接。本次同步的 Xcode 工程、依赖锁和 ICNS 直接取自该成功构建的诊断 artifact。
+验证环境为 GitHub 标准 macOS runner，原生 macOS SDK / arm64 Release / ad-hoc signing。没有在用户本地保存工程或安装编译依赖。本轮未修改上游 iOS 工程和共享源码，未重跑 iOS baseline。
 
-DMG SHA-256（已在内存中重新计算并与附带校验文件比对）：
+## 检查边界
+- 官方 Demo 与 WASM fixture 验证首页、分类与分页；不代表所有第三方漫画网站已经兼容。
+- 截图使用固定测试封面，检查 320 点和 900 点宽度的海报布局、320 点阅读工具栏。缓存复用有自动检查，特殊站点的封面请求与处理仍需实站验证。
+- 首页各组件统一呈现为海报网格或列表；自动轮播、排行编号、章节摘要和完整筛选编辑器尚未移植。
+- 网页登录、Cloudflare、旧 ABI、追踪、iCloud 迁移和完整后台下载队列仍不完整。
+- 既有书库持久化字段未变更。升级前退出旧应用，再替换应用。
 
-`a627e0267daa8e5697e0130c814dd695d0b574d95bd662cac34b6ad561d8cc14`
+## 最终结果
 
-## 验证范围
+[Actions 运行](https://github.com/linconbb/Aidoku/actions/runs/34328823375) 成功，53 项运行检查通过。已检查最终版阅读与海报截图，320 点两列海报、900 点六列海报，阅读工具栏窄窗口换行。
 
-36 项原生运行检查全部通过，完整逐项日志在诊断 artifact 的 build/smoke.log：
+[下载 DMG artifact](https://github.com/linconbb/Aidoku/actions/runs/34328823375/artifacts/10095046644) · [诊断日志与截图](https://github.com/linconbb/Aidoku/actions/runs/34328823375/artifacts/10095047061)
 
-- 共享文件名解析、自然排序、CBZ 解码、路径穿越拒绝、本地导入与进度持久化。
-- 图标资源解码、bundle 图标声明。
-- 单页、双页、连续阅读窗口渲染；双页封面、配对、前后边界、RTL 方向、阅读偏好持久化。
-- 页面缓存、过期阅读会话隔离、本地重复导入去重。
-- CBZ 导出内容完整且可解码；不支持的文字章节导出失败时保留原目标文件。
-- 引擎搜索、分页去重、漫画详情、章节和页面列表。
-- 官方 WASM 测试包初始化与 getHome；AIX 安装与更新、停用、停用状态重启持久化、重新启用。
+DMG SHA-256（已在内存中重新计算并匹配附带校验文件）：`f8b0bcec5346b45fe8a09c9d4b8b44fd882076b43e9abb84227d4ec6a519af59`。
 
-已检查 1000×720 的单页、双页和连续阅读截图。自动化使用测试图片及官方 WASM fixture；不等于逐个验证第三方真实站点，也未覆盖用户实际设备上的全部窗口/手势操作。
+生成工程、依赖锁和圆角 ICNS 与成功构建的诊断 artifact 同步。DMG 内包含 Aidoku.app 与 Applications 链接。构建使用 ad-hoc 签名，未进行 Developer ID 签名或 notarization。Artifacts 有保留期限，过期后可手动运行 workflow 重新生成。
 
-本轮没有修改上游 Aidoku/、Aidoku.xcodeproj/、AidokuTests/ 文件，也没有改动已有 SavedBook 持久化字段。本轮未重复运行 iOS baseline；上一轮使用 Xcode 26.3 的 iOS baseline 已通过。手动 workflow 的 verify_ios 输入可再次运行。
-
-## 仍未完成
-
-这仍是原生 macOS 预览版，不是 iOS 功能完整对等版。旧版源 ABI、Cloudflare/网页登录会话、iCloud/Core Data 数据迁移、追踪服务以及完整后台下载队列尚未完成。CBZ 保存是当前章节的前台操作。实际第三方源兼容性需按站点验证。更多用法和限制见 [中文说明](README.zh-CN.md)。
-
-所有本轮源码修改与构建均通过云端仓库/API/Actions 完成，未在用户本地保存工程或下载安装编译依赖。Artifacts 有保留期限，过期后可在 Actions 手动重新构建。
+完整检查日志：
+```text
+PASS: shared v0.9 chapter parser
+PASS: reject invalid source identifiers
+PASS: natural page ordering
+PASS: CBZ page decoding
+PASS: reject archive path traversal
+PASS: local import and native reader
+PASS: persistent reading progress
+PASS: native ICNS resource decodes
+PASS: icon has transparent outer corners
+PASS: icon rounded corner mask
+PASS: icon artwork remains opaque
+PASS: bundle declares native app icon
+PASS: spread cover displayed alone
+PASS: spread pairing after cover
+PASS: backward spread navigation
+PASS: last spread boundary
+PASS: page cache reuses decoded image
+PASS: reimport does not duplicate a local book
+PASS: CBZ export contains every page
+PASS: exported CBZ page decodes
+PASS: RTL left arrow advances one spread
+PASS: RTL right arrow returns one spread
+PASS: reading preferences persist
+PASS: reader single renders a full-size window
+PASS: reader spread renders a full-size window
+PASS: reader continuous renders a full-size window
+PASS: reader-narrow requested width
+PASS: library-narrow requested width
+PASS: old document load cannot overwrite new reader
+PASS: demo source home and categories
+PASS: category displays manga grid data
+PASS: category pagination deduplicates entries
+PASS: old category response cannot overwrite new source
+PASS: shared engine search through native model
+PASS: search pagination deduplicates repeated results
+PASS: shared engine manga and chapters
+PASS: shared engine page list through native reader
+PASS: failed text chapter export preserves destination
+PASS: official WASM fixture initialization
+PASS: official WASM getHome
+PASS: source home loads through native model
+PASS: source listings load through native model
+PASS: listing opens through native model
+PASS: poster cache reuses decoded cover
+PASS: browse-narrow requested width
+PASS: browse-wide requested width
+PASS: browse-list requested width
+PASS: changing source clears old browsing content
+PASS: AIX package installs through native source manager
+PASS: source update replaces without duplicating
+PASS: source disable unloads the runtime
+PASS: disabled source persists without loading WASM
+PASS: source enable restores runtime
+ALL NATIVE SMOKE TESTS PASSED
+```
