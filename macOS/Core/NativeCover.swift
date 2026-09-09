@@ -37,7 +37,10 @@ extension MacModel {
         }
         try Task.checkCancellation()
         let rep = image.representations.first
-        let cost = Int(min(Double(rep?.pixelsWide ?? 0) * Double(rep?.pixelsHigh ?? 0) * 4, 64 * 1024 * 1024))
+        let pixelWidth = Double(rep?.pixelsWide ?? 0)
+        let pixelHeight = Double(rep?.pixelsHigh ?? 0)
+        let byteCount = pixelWidth * pixelHeight * 4.0
+        let cost = Int(min(byteCount, 67_108_864.0))
         coverCache.setObject(image, forKey: cacheKey, cost: cost)
         return image
     }
