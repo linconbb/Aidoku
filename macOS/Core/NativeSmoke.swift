@@ -161,6 +161,18 @@ enum NativeSmoke {
             model.rightToLeft = false
             model.sources.append(.demo())
             model.sourceKey = "demo"
+            await model.loadBrowseHome()
+            try require(model.home?.components.isEmpty == false && model.listings.count == 4, "demo source home and categories")
+            await model.openListing(.init(id: "2", name: "Grid 2"))
+            try require(model.results.count == 20 && model.home == nil, "category displays manga grid data")
+            await model.loadMoreBrowse()
+            try require(model.results.count == 20, "category pagination deduplicates entries")
+            let slowListing = Task { await model.openListing(.init(id: "1", name: "Slow")) }
+            try await Task.sleep(nanoseconds: 50_000_000)
+            model.sourceKey = ""
+            await slowListing.value
+            try require(model.results.isEmpty && !model.browseLoading, "old category response cannot overwrite new source")
+            model.sourceKey = "demo"
             model.query = "fixture"
             await model.search()
             try require(model.results.first?.key == "fixture", "shared engine search through native model")
@@ -198,8 +210,15 @@ enum NativeSmoke {
                     try require(model.browseError == nil && model.results.map(\.key) == expected.entries.map(\.key), "listing opens through native model")
                 }
                 let posters: [AidokuRunner.Manga] = (1...8).map {
-                    .init(sourceKey: source.key, key: "poster-\($0)", title: "漫画海报 \($0) · Narrow window")
+                    .init(sourceKey: source.key, key: "poster-\($0)", title: "漫画海报 \($0) · Narrow window", cover: "https://fixture.invalid/cover/\($0)")
                 }
+                for (index, poster) in posters.enumerated() {
+                    let image = NSImage(data: try testPage(index % 2 == 0 ? "1.png" : "2.png"))!
+                    model.coverCache.setObject(image, forKey: (source.key + "|" + poster.cover!) as NSString)
+                }
+                let coverOne = try await model.coverImage(posters[0].cover!, sourceKey: source.key)
+                let coverTwo = try await model.coverImage(posters[0].cover!, sourceKey: source.key)
+                try require(coverOne === coverTwo, "poster cache reuses decoded cover")
                 model.home = .init(components: [.init(title: "热门漫画", value: .bigScroller(entries: posters))])
                 model.results = posters; model.browseLoading = false; model.busy = false
                 try await capture(NativeBrowseView(model: model, automaticallyLoad: false), name: "browse-narrow", width: 320)

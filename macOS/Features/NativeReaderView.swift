@@ -38,7 +38,7 @@ struct NativeReaderView: View {
                         ScrollView([.vertical, .horizontal]) {
                             LazyVStack(spacing: 0) {
                                 ForEach(0..<model.pageCount, id: \.self) { index in
-                                    NativeReaderPage(model: model, index: index, width: geometry.size.width * model.readerZoom,
+                                    NativeReaderPage(model: model, index: index, width: max(1, geometry.size.width - 16) * model.readerZoom,
                                                      fittedHeight: nil, session: model.readerSession)
                                         .id(index)
                                 }

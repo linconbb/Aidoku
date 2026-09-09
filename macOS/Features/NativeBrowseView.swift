@@ -61,9 +61,10 @@ struct NativeBrowseView: View {
                                 .frame(maxWidth: .infinity)
                         }
                     }
-                }.frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 12)
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 12).padding(.trailing, 16)
             }
         }.padding(12)
+        .background(Color(nsColor: .windowBackgroundColor))
         .task(id: model.sourceKey) {
             if automaticallyLoad && model.loadedBrowseSource != model.sourceKey { await model.loadBrowseHome() }
         }
@@ -134,17 +135,7 @@ struct NativeBrowseView: View {
     }
 
     private func cover(_ link: HomeComponent.Value.Link) -> some View {
-        GeometryReader { geometry in
-            AsyncImage(url: link.imageUrl.flatMap(URL.init(string:))) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFill()
-                } else {
-                    ZStack {
-                        Color(nsColor: .controlBackgroundColor)
-                        Image(systemName: "book.closed").font(.largeTitle).foregroundStyle(.secondary)
-                    }
-                }
-            }.frame(width: geometry.size.width, height: geometry.size.height).clipped()
-        }.clipShape(RoundedRectangle(cornerRadius: 8))
+        NativeCoverImage(model: model, url: link.imageUrl, sourceKey: model.sourceKey)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }

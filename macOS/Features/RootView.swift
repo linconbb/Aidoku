@@ -33,6 +33,7 @@ struct RootView: View {
                 } detail: { content }
             }
         }
+        .background(Color(nsColor: .windowBackgroundColor))
         .onChange(of: section) { model.manga = nil; model.closeReader() }
         .confirmationDialog("移除这个源？书库记录会保留，源文件将移到废纸篓。", isPresented: Binding(
             get: { sourceToRemove != nil }, set: { if !$0 { sourceToRemove = nil } })) {

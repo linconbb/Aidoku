@@ -50,6 +50,7 @@ final class MacModel: ObservableObject {
     @Published var browseLoading = false
     @Published var browseError: String?
     @Published var posterGrid = true
+    let coverCache = NSCache<NSString, NSImage>()
     var loadedBrowseSource = ""
     var browseGeneration = UUID()
     var selectedListing: AidokuRunner.Listing?
@@ -124,6 +125,8 @@ final class MacModel: ObservableObject {
         self.disabledSourceKeys = Set(preferences.stringArray(forKey: "mac.disabledSources") ?? [])
         self.savedSourceLists = preferences.stringArray(forKey: "mac.sourceLists") ??
             (preferences.string(forKey: "mac.sourceListURL").map { [$0] } ?? [])
+        coverCache.countLimit = 100
+        coverCache.totalCostLimit = 64 * 1024 * 1024
         pageCache.countLimit = 12
         pageCache.totalCostLimit = 128 * 1024 * 1024
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
